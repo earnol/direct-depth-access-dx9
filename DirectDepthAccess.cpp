@@ -1,6 +1,7 @@
 //-----------------------------------------------------------------------------
 // File: DirectDepthAccess.cpp
 //
+// author: Dmytro Shchukin
 //-----------------------------------------------------------------------------
 #include <Windows.h>
 #include <mmsystem.h>
@@ -151,6 +152,9 @@ D3DXHANDLE                      g_hTShowUnmodified;       // Handle to ShowUnmod
 
 DepthTexture*					g_depthTexture = NULL;
 
+const int						g_screenWidth = 600;
+const int						g_screenHeight = 600;
+
 //-----------------------------------------------------------------------------
 // Name: InitD3D()
 // Desc: Initializes Direct3D
@@ -201,7 +205,7 @@ HRESULT InitD3D( HWND hWnd )
 
 	g_hTShowUnmodified = g_pEffect->GetTechniqueByName( "ShowUnmodified" );
 
-	g_depthTexture = new DepthTexture(g_pd3dDevice, g_pD3D, 600, 600);
+	g_depthTexture = new DepthTexture(g_pd3dDevice, g_pD3D, g_screenWidth, g_screenHeight);
 
 	return S_OK;
 }
@@ -431,7 +435,7 @@ INT WINAPI wWinMain( HINSTANCE hInst, HINSTANCE, LPWSTR, INT )
 
 	// Create the application's window
 	HWND hWnd = CreateWindow( L"D3D Tutorial", L"Direct Depth Access",
-		WS_OVERLAPPEDWINDOW, 100, 100, 600, 600,
+		WS_OVERLAPPEDWINDOW, 100, 100, 100 + g_screenWidth, 100 + g_screenWidth,
 		NULL, NULL, wc.hInstance, NULL );
 
 	// Initialize Direct3D
