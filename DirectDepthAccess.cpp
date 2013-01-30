@@ -11,12 +11,15 @@
 #pragma warning( default : 4996 )
 #include <nvapi.h>
 
+const int						SCREEN_WIDTH = 640;
+const int						SCREEN_HEIGHT = 480;
+
 //--------------------------------------------------------------------------------------
 class DepthTexture
 {
 	#define RESZ_CODE 0x7fa05000
 
-	IDirect3DTexture9 *		m_depthTexture;
+	LPDIRECT3DTEXTURE9		m_depthTexture;
 	bool					m_isRESZ;
 	bool					m_allowDirectDepthAccess;
 	IDirect3DSurface9 *		m_registeredDepthStencilSurface;
@@ -73,27 +76,33 @@ public:
 	{
 		if (m_isRESZ)
 		{
-			device->SetDepthStencilSurface(depthStencilSurface);
-			device->SetVertexShader(NULL);
-			device->SetPixelShader(NULL);
-			device->SetFVF(D3DFVF_XYZ);
-			// Bind depth stencil texture to texture sampler 0
-			device->SetTexture(0, m_depthTexture);
-			// Perform a dummy draw call to ensure texture sampler 0 is set before the // resolve is triggered
-			// Vertex declaration and shaders may need to me adjusted to ensure no debug
-			// error message is produced
-			D3DXVECTOR3 vDummyPoint(0.0f, 0.0f, 0.0f);
-			device->SetRenderState(D3DRS_ZENABLE, FALSE);
-			device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-			device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
-			device->DrawPrimitiveUP(D3DPT_POINTLIST, 1, vDummyPoint, sizeof(D3DXVECTOR3));
-			device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
-			device->SetRenderState(D3DRS_ZENABLE, TRUE);
-			device->SetRenderState(D3DRS_COLORWRITEENABLE, 0x0F);
+			IDirect3DSurface9* pOldDS = NULL;
+			device->GetDepthStencilSurface( &pOldDS );
+			{
+				device->SetDepthStencilSurface(depthStencilSurface);
+				device->SetVertexShader(NULL);
+				device->SetPixelShader(NULL);
+				device->SetFVF(D3DFVF_XYZ);
+				// Bind depth stencil texture to texture sampler 0
+				device->SetTexture(0, m_depthTexture);
+				// Perform a dummy draw call to ensure texture sampler 0 is set before the // resolve is triggered
+				// Vertex declaration and shaders may need to me adjusted to ensure no debug
+				// error message is produced
+				D3DXVECTOR3 vDummyPoint(0.0f, 0.0f, 0.0f);
+				device->SetRenderState(D3DRS_ZENABLE, FALSE);
+				device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+				device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+				device->DrawPrimitiveUP(D3DPT_POINTLIST, 1, vDummyPoint, sizeof(D3DXVECTOR3));
+				device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+				device->SetRenderState(D3DRS_ZENABLE, TRUE);
+				device->SetRenderState(D3DRS_COLORWRITEENABLE, 0x0F);
 
-			// Trigger the depth buffer resolve; after this call texture sampler 0
-			// will contain the contents of the resolve operation
-			device->SetRenderState(D3DRS_POINTSIZE, RESZ_CODE);
+				// Trigger the depth buffer resolve; after this call texture sampler 0
+				// will contain the contents of the resolve operation
+				device->SetRenderState(D3DRS_POINTSIZE, RESZ_CODE);
+			}
+			device->SetDepthStencilSurface(pOldDS);
+			pOldDS->Release();
 		}
 		else
 		{
@@ -112,7 +121,7 @@ public:
 		}
 	}
 
-	IDirect3DTexture9 * getTexture() { return m_depthTexture; }
+	LPDIRECT3DTEXTURE9 getTexture() { return m_depthTexture; }
 };
 
 //--------------------------------------------------------------------------------------
@@ -149,11 +158,9 @@ DWORD							g_dwNumMaterials = 0L;   // Number of mesh materials
 IDirect3DVertexDeclaration9*    g_pVertDeclPP = NULL; // Vertex decl for post-processing
 ID3DXEffect*                    g_pEffect = NULL;        // D3DX effect interface
 D3DXHANDLE                      g_hTShowUnmodified;       // Handle to ShowUnmodified technique
+D3DXHANDLE                      g_hTextureDepthTexture;
 
 DepthTexture*					g_depthTexture = NULL;
-
-const int						g_screenWidth = 600;
-const int						g_screenHeight = 600;
 
 //-----------------------------------------------------------------------------
 // Name: InitD3D()
@@ -171,7 +178,11 @@ HRESULT InitD3D( HWND hWnd )
 	ZeroMemory( &d3dpp, sizeof( d3dpp ) );
 	d3dpp.Windowed = TRUE;
 	d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-	d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
+	d3dpp.BackBufferFormat = D3DFMT_X8R8G8B8;
+	d3dpp.BackBufferWidth = SCREEN_WIDTH;
+	d3dpp.BackBufferHeight = SCREEN_HEIGHT;
+	d3dpp.BackBufferCount = 1;
+	d3dpp.MultiSampleType = D3DMULTISAMPLE_4_SAMPLES;
 	d3dpp.EnableAutoDepthStencil = TRUE;
 	d3dpp.AutoDepthStencilFormat = D3DFMT_D24X8; // NOTE! not all formats supported
 
@@ -185,6 +196,7 @@ HRESULT InitD3D( HWND hWnd )
 
 	// Turn on the zbuffer
 	g_pd3dDevice->SetRenderState( D3DRS_ZENABLE, TRUE );
+	g_pd3dDevice->SetRenderState( D3DRS_ZWRITEENABLE, TRUE);
 
 	// Turn on ambient lighting 
 	g_pd3dDevice->SetRenderState( D3DRS_AMBIENT, 0xffffffff );
@@ -204,8 +216,9 @@ HRESULT InitD3D( HWND hWnd )
 	}
 
 	g_hTShowUnmodified = g_pEffect->GetTechniqueByName( "ShowUnmodified" );
+	g_hTextureDepthTexture = g_pEffect->GetParameterByName( NULL, "DepthTargetTexture" );
 
-	g_depthTexture = new DepthTexture(g_pd3dDevice, g_pD3D, g_screenWidth, g_screenHeight);
+	g_depthTexture = new DepthTexture(g_pd3dDevice, g_pD3D, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 	return S_OK;
 }
@@ -310,6 +323,9 @@ VOID Cleanup()
 
 	if (g_pEffect != NULL )
 		g_pEffect->Release();
+
+	delete g_depthTexture;
+	g_depthTexture = NULL;
 }
 
 //-----------------------------------------------------------------------------
@@ -317,7 +333,7 @@ VOID SetupMatrices()
 {
 	// Set up world matrix
 	D3DXMATRIXA16 matWorld;
-	D3DXMatrixRotationY( &matWorld, timeGetTime() / 1000.0f );
+	D3DXMatrixRotationY( &matWorld, /*timeGetTime() / 1000.0f*/0.5f );
 	g_pd3dDevice->SetTransform( D3DTS_WORLD, &matWorld );
 
 	// Set up our view matrix. A view matrix can be defined given an eye point,
@@ -369,12 +385,16 @@ VOID Render()
 
 		IDirect3DSurface9* pDepthStencilSurface = NULL;
 		HRESULT h = g_pd3dDevice->GetDepthStencilSurface( &pDepthStencilSurface );
+
+		// Resolve depth
 		g_depthTexture->resolveDepth(g_pd3dDevice, pDepthStencilSurface);
+
+		pDepthStencilSurface->Release();
 
 		// Render a screen-sized quad
 		{
-			int width = 150;
-			int height = 150;
+			int width = SCREEN_WIDTH * 0.35f;
+			int height = SCREEN_HEIGHT * 0.35f;
 			PPVERT quad[4] =
 			{
 				{ -0.5f,		-0.5f,          0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
@@ -385,7 +405,7 @@ VOID Render()
 
 			g_pd3dDevice->SetVertexDeclaration( g_pVertDeclPP );
 			g_pEffect->SetTechnique( g_hTShowUnmodified );
-			g_pEffect->SetTexture( "DepthTargetTexture", g_depthTexture->getTexture() );
+			g_pEffect->SetTexture( g_hTextureDepthTexture, g_depthTexture->getTexture() );
 			UINT cPasses;
 			g_pEffect->Begin( &cPasses, 0 );
 			for( size_t p = 0; p < cPasses; ++p )
@@ -435,7 +455,7 @@ INT WINAPI wWinMain( HINSTANCE hInst, HINSTANCE, LPWSTR, INT )
 
 	// Create the application's window
 	HWND hWnd = CreateWindow( L"D3D Tutorial", L"Direct Depth Access",
-		WS_OVERLAPPEDWINDOW, 100, 100, 100 + g_screenWidth, 100 + g_screenWidth,
+		WS_OVERLAPPEDWINDOW, 100, 100, SCREEN_WIDTH, SCREEN_HEIGHT,
 		NULL, NULL, wc.hInstance, NULL );
 
 	// Initialize Direct3D
