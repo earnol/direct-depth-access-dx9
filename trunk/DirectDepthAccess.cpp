@@ -333,7 +333,7 @@ VOID SetupMatrices()
 {
 	// Set up world matrix
 	D3DXMATRIXA16 matWorld;
-	D3DXMatrixRotationY( &matWorld, /*timeGetTime() / 1000.0f*/0.5f );
+	D3DXMatrixRotationY( &matWorld, timeGetTime() / 1000.0f );
 	g_pd3dDevice->SetTransform( D3DTS_WORLD, &matWorld );
 
 	// Set up our view matrix. A view matrix can be defined given an eye point,
