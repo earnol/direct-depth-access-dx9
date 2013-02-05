@@ -100,6 +100,7 @@ public:
 				// Trigger the depth buffer resolve; after this call texture sampler 0
 				// will contain the contents of the resolve operation
 				device->SetRenderState(D3DRS_POINTSIZE, RESZ_CODE);
+				device->SetRenderState(D3DRS_POINTSIZE, 0); // TROLOLO!!!
 			}
 			device->SetDepthStencilSurface(pOldDS);
 			pOldDS->Release();
