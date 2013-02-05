@@ -100,6 +100,9 @@ public:
 				// Trigger the depth buffer resolve; after this call texture sampler 0
 				// will contain the contents of the resolve operation
 				device->SetRenderState(D3DRS_POINTSIZE, RESZ_CODE);
+
+				// This hack to fix resz hack, has been found by Maksym Bezus!!!
+				// Without this line resz will be resolved only for first frame
 				device->SetRenderState(D3DRS_POINTSIZE, 0); // TROLOLO!!!
 			}
 			device->SetDepthStencilSurface(pOldDS);
