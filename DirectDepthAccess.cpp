@@ -72,14 +72,11 @@ public:
 	}
 
 	//--------------------------------------------------------------------------------------
-	void resolveDepth(const LPDIRECT3DDEVICE9 device, IDirect3DSurface9* depthStencilSurface)
+	void resolveDepth(const LPDIRECT3DDEVICE9 device)
 	{
 		if (m_isRESZ)
 		{
-			IDirect3DSurface9* pOldDS = NULL;
-			device->GetDepthStencilSurface( &pOldDS );
 			{
-				device->SetDepthStencilSurface(depthStencilSurface);
 				device->SetVertexShader(NULL);
 				device->SetPixelShader(NULL);
 				device->SetFVF(D3DFVF_XYZ);
@@ -105,23 +102,26 @@ public:
 				// Without this line resz will be resolved only for first frame
 				device->SetRenderState(D3DRS_POINTSIZE, 0); // TROLOLO!!!
 			}
-			device->SetDepthStencilSurface(pOldDS);
-			pOldDS->Release();
 		}
 		else
 		{
-			if (m_registeredDepthStencilSurface != depthStencilSurface)
+			IDirect3DSurface9* pDepthStencilSurface = NULL;
+			device->GetDepthStencilSurface( &pDepthStencilSurface );
+
+			if (m_registeredDepthStencilSurface != pDepthStencilSurface)
 			{
-				NvAPI_D3D9_RegisterResource(depthStencilSurface);
+				NvAPI_D3D9_RegisterResource(pDepthStencilSurface);
 				if (m_registeredDepthStencilSurface != NULL)
 				{
 					// Unregister old one if there is any
 					NvAPI_D3D9_UnregisterResource(m_registeredDepthStencilSurface);
 				}
 
-				m_registeredDepthStencilSurface = depthStencilSurface;
+				m_registeredDepthStencilSurface = pDepthStencilSurface;
 			}
-			NvAPI_D3D9_StretchRectEx(device, depthStencilSurface, NULL, m_depthTexture, NULL, D3DTEXF_LINEAR);
+			NvAPI_D3D9_StretchRectEx(device, pDepthStencilSurface, NULL, m_depthTexture, NULL, D3DTEXF_LINEAR);
+
+			pDepthStencilSurface->Release();
 		}
 	}
 
@@ -387,13 +387,8 @@ VOID Render()
 			g_pMesh->DrawSubset( i );
 		}
 
-		IDirect3DSurface9* pDepthStencilSurface = NULL;
-		HRESULT h = g_pd3dDevice->GetDepthStencilSurface( &pDepthStencilSurface );
-
 		// Resolve depth
-		g_depthTexture->resolveDepth(g_pd3dDevice, pDepthStencilSurface);
-
-		pDepthStencilSurface->Release();
+		g_depthTexture->resolveDepth(g_pd3dDevice);
 
 		// Render a screen-sized quad
 		{
