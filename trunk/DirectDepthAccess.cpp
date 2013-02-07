@@ -17,10 +17,15 @@ const int						SCREEN_HEIGHT = 480;
 //--------------------------------------------------------------------------------------
 class DepthTexture
 {
+	#define FOURCC_RESZ ((D3DFORMAT)(MAKEFOURCC('R','E','S','Z')))
+	#define FOURCC_INTZ ((D3DFORMAT)(MAKEFOURCC('I','N','T','Z')))
+	#define FOURCC_RAWZ ((D3DFORMAT)(MAKEFOURCC('R','A','W','Z')))
 	#define RESZ_CODE 0x7fa05000
 
 	LPDIRECT3DTEXTURE9		m_depthTexture;
 	bool					m_isRESZ;
+	bool					m_isINTZ;
+	bool					m_isRAWZ;
 	bool					m_allowDirectDepthAccess;
 	IDirect3DSurface9 *		m_registeredDepthStencilSurface;
 public:
@@ -35,15 +40,25 @@ public:
 
 		// determine if RESZ is supported
 		m_isRESZ = d3d->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
-			currentDisplayMode.Format, D3DUSAGE_RENDERTARGET, D3DRTYPE_SURFACE, (D3DFORMAT)(MAKEFOURCC('R','E','S','Z'))) == D3D_OK;
+			currentDisplayMode.Format, D3DUSAGE_RENDERTARGET, D3DRTYPE_SURFACE, FOURCC_RESZ ) == D3D_OK;
+
+		// determine if INTZ is supported
+		m_isINTZ = d3d->CheckDeviceFormat( D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+			currentDisplayMode.Format, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, FOURCC_INTZ ) == D3D_OK;
+
+		// determine if RAWZ is supported, used in GeForce 6-7 series.
+		m_isRAWZ = d3d->CheckDeviceFormat( D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+			currentDisplayMode.Format, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, FOURCC_RAWZ ) == D3D_OK;
 
 		// determine if RESZ or NVAPI supported
-		m_allowDirectDepthAccess = (NvAPI_Initialize() == NVAPI_OK) || m_isRESZ;
+		m_allowDirectDepthAccess = ( NvAPI_Initialize() == NVAPI_OK || m_isRESZ ) && ( m_isRAWZ || m_isINTZ );
 
 		if (m_allowDirectDepthAccess)
 		{
+			D3DFORMAT format = m_isINTZ ? FOURCC_INTZ : FOURCC_RAWZ;
+
 			device->CreateTexture(width, height, 1,
-				D3DUSAGE_DEPTHSTENCIL, (D3DFORMAT)MAKEFOURCC('I', 'N', 'T', 'Z'), // NOTE! on GeForce 6 - 7 series, you need to use RAWZ
+				D3DUSAGE_DEPTHSTENCIL, format,
 				D3DPOOL_DEFAULT, &m_depthTexture,
 				NULL);
 
@@ -125,7 +140,8 @@ public:
 		}
 	}
 
-	LPDIRECT3DTEXTURE9 getTexture() { return m_depthTexture; }
+	LPDIRECT3DTEXTURE9	getTexture() { return m_depthTexture; }
+	bool				isINTZ() { return m_isINTZ; }
 };
 
 //--------------------------------------------------------------------------------------
@@ -219,10 +235,11 @@ HRESULT InitD3D( HWND hWnd )
 		D3DXCreateEffectFromFile( g_pd3dDevice, L"DirectDepthAccess.fx", NULL, NULL, dwShaderFlags, NULL, &g_pEffect, NULL );
 	}
 
-	g_hTShowUnmodified = g_pEffect->GetTechniqueByName( "ShowUnmodified" );
-	g_hTextureDepthTexture = g_pEffect->GetParameterByName( NULL, "DepthTargetTexture" );
-
 	g_depthTexture = new DepthTexture(g_pd3dDevice, g_pD3D, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+	const char* techniqueName = g_depthTexture->isINTZ() ? "ShowUnmodified" : "ShowUnmodifiedRAWZ";
+	g_hTShowUnmodified = g_pEffect->GetTechniqueByName( techniqueName );
+	g_hTextureDepthTexture = g_pEffect->GetParameterByName( NULL, "DepthTargetTexture" );
 
 	return S_OK;
 }
