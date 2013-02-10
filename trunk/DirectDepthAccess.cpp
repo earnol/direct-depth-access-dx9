@@ -1,6 +1,5 @@
 #include <Windows.h>
 #include <mmsystem.h>
-#include <d3dx9.h>
 #pragma warning( disable : 4996 ) // disable deprecated warning 
 #include <strsafe.h>
 #include "DepthTexture.h"
@@ -279,8 +278,9 @@ VOID Render()
 
 			// Render a screen-sized quad
 			{
-				int width = SCREEN_WIDTH * 0.35f;
-				int height = SCREEN_HEIGHT * 0.35f;
+				const float scale = 0.35f;
+				float width = SCREEN_WIDTH * scale;
+				float height = SCREEN_HEIGHT * scale;
 				PPVERT quad[4] =
 				{
 					{ -0.5f,		-0.5f,          0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
