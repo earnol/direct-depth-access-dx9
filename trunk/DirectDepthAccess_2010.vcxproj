@@ -382,11 +382,13 @@
     <None Include="DirectDepthAccess.fx" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DepthTexture.cpp" />
     <ClCompile Include="DirectDepthAccess.cpp" />
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DepthTexture.h" />
     <CLInclude Include="resource.h" />
     <ResourceCompile Include="DirectDepthAccess.rc" />
   </ItemGroup>

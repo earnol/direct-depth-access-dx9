@@ -35,7 +35,6 @@ technique ShowUnmodified
 }
 
 // See http://developer.download.nvidia.com/GPU_Programming_Guide/GPU_Programming_Guide_G80.pdf
-
 #define MORE_ACCURATE 1
 float4 RenderUnmodifiedRAWZ( in float2 OriginalUV : TEXCOORD0 ) : COLOR 
 {

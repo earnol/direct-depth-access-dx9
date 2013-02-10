@@ -23,11 +23,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DirectDepthAccess.cpp" />
+    <ClCompile Include="DepthTexture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CLInclude Include="resource.h">
       <Filter>Resource Files</Filter>
     </CLInclude>
+    <ClInclude Include="DepthTexture.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="DirectDepthAccess.rc">
