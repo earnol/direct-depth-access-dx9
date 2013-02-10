@@ -1,148 +1,30 @@
-//-----------------------------------------------------------------------------
-// File: DirectDepthAccess.cpp
-//
-// author: Dmytro Shchukin
-//-----------------------------------------------------------------------------
 #include <Windows.h>
 #include <mmsystem.h>
 #include <d3dx9.h>
 #pragma warning( disable : 4996 ) // disable deprecated warning 
 #include <strsafe.h>
-#pragma warning( default : 4996 )
-#include <nvapi.h>
+#include "DepthTexture.h"
 
+//-----------------------------------------------------------------------------
+// Global variables
+//-----------------------------------------------------------------------------
 const int						SCREEN_WIDTH = 640;
 const int						SCREEN_HEIGHT = 480;
 
-//--------------------------------------------------------------------------------------
-class DepthTexture
-{
-	#define FOURCC_RESZ ((D3DFORMAT)(MAKEFOURCC('R','E','S','Z')))
-	#define FOURCC_INTZ ((D3DFORMAT)(MAKEFOURCC('I','N','T','Z')))
-	#define FOURCC_RAWZ ((D3DFORMAT)(MAKEFOURCC('R','A','W','Z')))
-	#define RESZ_CODE 0x7fa05000
+LPDIRECT3D9						g_pD3D = NULL; // Used to create the D3DDevice
+LPDIRECT3DDEVICE9				g_pd3dDevice = NULL; // Our rendering device
 
-	LPDIRECT3DTEXTURE9		m_depthTexture;
-	bool					m_isRESZ;
-	bool					m_isINTZ;
-	bool					m_isRAWZ;
-	bool					m_allowDirectDepthAccess;
-	IDirect3DSurface9 *		m_registeredDepthStencilSurface;
-public:
+LPD3DXMESH						g_pMesh = NULL; // Our mesh object in sysmem
+D3DMATERIAL9*					g_pMeshMaterials = NULL; // Materials for our mesh
+LPDIRECT3DTEXTURE9*				g_pMeshTextures = NULL; // Textures for our mesh
+DWORD							g_dwNumMaterials = 0L;   // Number of mesh materials
 
-	//--------------------------------------------------------------------------------------
-	DepthTexture(const LPDIRECT3DDEVICE9 device, const LPDIRECT3D9 d3d, int width, int height)
-		: m_registeredDepthStencilSurface( NULL )
-	{
-		m_depthTexture = NULL;
-		D3DDISPLAYMODE currentDisplayMode;
-		d3d->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &currentDisplayMode);
+IDirect3DVertexDeclaration9*    g_pVertDeclPP = NULL; // Vertex decl for post-processing
+ID3DXEffect*                    g_pEffect = NULL;        // D3DX effect interface
+D3DXHANDLE                      g_hTShowUnmodified;       // Handle to ShowUnmodified technique
+D3DXHANDLE                      g_hTextureDepthTexture;
 
-		// determine if RESZ is supported
-		m_isRESZ = d3d->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
-			currentDisplayMode.Format, D3DUSAGE_RENDERTARGET, D3DRTYPE_SURFACE, FOURCC_RESZ ) == D3D_OK;
-
-		// determine if INTZ is supported
-		m_isINTZ = d3d->CheckDeviceFormat( D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
-			currentDisplayMode.Format, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, FOURCC_INTZ ) == D3D_OK;
-
-		// determine if RAWZ is supported, used in GeForce 6-7 series.
-		m_isRAWZ = d3d->CheckDeviceFormat( D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
-			currentDisplayMode.Format, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, FOURCC_RAWZ ) == D3D_OK;
-
-		// determine if RESZ or NVAPI supported
-		m_allowDirectDepthAccess = ( NvAPI_Initialize() == NVAPI_OK || m_isRESZ ) && ( m_isRAWZ || m_isINTZ );
-
-		if (m_allowDirectDepthAccess)
-		{
-			D3DFORMAT format = m_isINTZ ? FOURCC_INTZ : FOURCC_RAWZ;
-
-			device->CreateTexture(width, height, 1,
-				D3DUSAGE_DEPTHSTENCIL, format,
-				D3DPOOL_DEFAULT, &m_depthTexture,
-				NULL);
-
-			if (!m_isRESZ)
-			{
-				NvAPI_D3D9_RegisterResource(m_depthTexture);
-			}
-		}
-	}
-
-	//--------------------------------------------------------------------------------------
-	~DepthTexture()
-	{
-		if (m_depthTexture)
-		{
-			if (!m_isRESZ)
-			{
-				NvAPI_D3D9_UnregisterResource(m_depthTexture);
-			}
-			m_depthTexture->Release();
-		}
-		if (m_registeredDepthStencilSurface != NULL)
-		{
-			NvAPI_D3D9_UnregisterResource(m_registeredDepthStencilSurface);
-		}
-	}
-
-	//--------------------------------------------------------------------------------------
-	void resolveDepth(const LPDIRECT3DDEVICE9 device)
-	{
-		if (m_isRESZ)
-		{
-			{
-				device->SetVertexShader(NULL);
-				device->SetPixelShader(NULL);
-				device->SetFVF(D3DFVF_XYZ);
-				// Bind depth stencil texture to texture sampler 0
-				device->SetTexture(0, m_depthTexture);
-				// Perform a dummy draw call to ensure texture sampler 0 is set before the // resolve is triggered
-				// Vertex declaration and shaders may need to me adjusted to ensure no debug
-				// error message is produced
-				D3DXVECTOR3 vDummyPoint(0.0f, 0.0f, 0.0f);
-				device->SetRenderState(D3DRS_ZENABLE, FALSE);
-				device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-				device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
-				device->DrawPrimitiveUP(D3DPT_POINTLIST, 1, vDummyPoint, sizeof(D3DXVECTOR3));
-				device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
-				device->SetRenderState(D3DRS_ZENABLE, TRUE);
-				device->SetRenderState(D3DRS_COLORWRITEENABLE, 0x0F);
-
-				// Trigger the depth buffer resolve; after this call texture sampler 0
-				// will contain the contents of the resolve operation
-				device->SetRenderState(D3DRS_POINTSIZE, RESZ_CODE);
-
-				// This hack to fix resz hack, has been found by Maksym Bezus!!!
-				// Without this line resz will be resolved only for first frame
-				device->SetRenderState(D3DRS_POINTSIZE, 0); // TROLOLO!!!
-			}
-		}
-		else
-		{
-			IDirect3DSurface9* pDepthStencilSurface = NULL;
-			device->GetDepthStencilSurface( &pDepthStencilSurface );
-
-			if (m_registeredDepthStencilSurface != pDepthStencilSurface)
-			{
-				NvAPI_D3D9_RegisterResource(pDepthStencilSurface);
-				if (m_registeredDepthStencilSurface != NULL)
-				{
-					// Unregister old one if there is any
-					NvAPI_D3D9_UnregisterResource(m_registeredDepthStencilSurface);
-				}
-
-				m_registeredDepthStencilSurface = pDepthStencilSurface;
-			}
-			NvAPI_D3D9_StretchRectEx(device, pDepthStencilSurface, NULL, m_depthTexture, NULL, D3DTEXF_LINEAR);
-
-			pDepthStencilSurface->Release();
-		}
-	}
-
-	LPDIRECT3DTEXTURE9	getTexture() { return m_depthTexture; }
-	bool				isINTZ() { return m_isINTZ; }
-};
+DepthTexture*					g_depthTexture = NULL;
 
 //--------------------------------------------------------------------------------------
 // This is the vertex format used with the quad during post-process.
@@ -163,24 +45,6 @@ const D3DVERTEXELEMENT9 PPVERT::Decl[4] =
 	{ 0, 24, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD,  1 },
 	D3DDECL_END()
 };
-
-//-----------------------------------------------------------------------------
-// Global variables
-//-----------------------------------------------------------------------------
-LPDIRECT3D9						g_pD3D = NULL; // Used to create the D3DDevice
-LPDIRECT3DDEVICE9				g_pd3dDevice = NULL; // Our rendering device
-
-LPD3DXMESH						g_pMesh = NULL; // Our mesh object in sysmem
-D3DMATERIAL9*					g_pMeshMaterials = NULL; // Materials for our mesh
-LPDIRECT3DTEXTURE9*				g_pMeshTextures = NULL; // Textures for our mesh
-DWORD							g_dwNumMaterials = 0L;   // Number of mesh materials
-
-IDirect3DVertexDeclaration9*    g_pVertDeclPP = NULL; // Vertex decl for post-processing
-ID3DXEffect*                    g_pEffect = NULL;        // D3DX effect interface
-D3DXHANDLE                      g_hTShowUnmodified;       // Handle to ShowUnmodified technique
-D3DXHANDLE                      g_hTextureDepthTexture;
-
-DepthTexture*					g_depthTexture = NULL;
 
 //-----------------------------------------------------------------------------
 // Name: InitD3D()
@@ -235,11 +99,15 @@ HRESULT InitD3D( HWND hWnd )
 		D3DXCreateEffectFromFile( g_pd3dDevice, L"DirectDepthAccess.fx", NULL, NULL, dwShaderFlags, NULL, &g_pEffect, NULL );
 	}
 
-	g_depthTexture = new DepthTexture(g_pd3dDevice, g_pD3D, SCREEN_WIDTH, SCREEN_HEIGHT);
+	g_depthTexture = new DepthTexture(g_pD3D);
+	if (g_depthTexture->isSupported())
+	{
+		g_depthTexture->createTexture(g_pd3dDevice, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-	const char* techniqueName = g_depthTexture->isINTZ() ? "ShowUnmodified" : "ShowUnmodifiedRAWZ";
-	g_hTShowUnmodified = g_pEffect->GetTechniqueByName( techniqueName );
-	g_hTextureDepthTexture = g_pEffect->GetParameterByName( NULL, "DepthTargetTexture" );
+		const char* techniqueName = g_depthTexture->isINTZ() ? "ShowUnmodified" : "ShowUnmodifiedRAWZ";
+		g_hTShowUnmodified = g_pEffect->GetTechniqueByName( techniqueName );
+		g_hTextureDepthTexture = g_pEffect->GetParameterByName( NULL, "DepthTargetTexture" );
+	}
 
 	return S_OK;
 }
@@ -404,33 +272,36 @@ VOID Render()
 			g_pMesh->DrawSubset( i );
 		}
 
-		// Resolve depth
-		g_depthTexture->resolveDepth(g_pd3dDevice);
-
-		// Render a screen-sized quad
+		if (g_depthTexture->isSupported())
 		{
-			int width = SCREEN_WIDTH * 0.35f;
-			int height = SCREEN_HEIGHT * 0.35f;
-			PPVERT quad[4] =
-			{
-				{ -0.5f,		-0.5f,          0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
-				{ width - 0.5f, -0.5f,			0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f },
-				{ -0.5f,		height - 0.5f,	0.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f },
-				{ width - 0.5f, height - 0.5f,	0.5f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f }
-			};
+			// Resolve depth
+			g_depthTexture->resolveDepth(g_pd3dDevice);
 
-			g_pd3dDevice->SetVertexDeclaration( g_pVertDeclPP );
-			g_pEffect->SetTechnique( g_hTShowUnmodified );
-			g_pEffect->SetTexture( g_hTextureDepthTexture, g_depthTexture->getTexture() );
-			UINT cPasses;
-			g_pEffect->Begin( &cPasses, 0 );
-			for( size_t p = 0; p < cPasses; ++p )
+			// Render a screen-sized quad
 			{
-				g_pEffect->BeginPass( p );
-				g_pd3dDevice->DrawPrimitiveUP( D3DPT_TRIANGLESTRIP, 2, quad, sizeof( PPVERT ) );
-				g_pEffect->EndPass();
+				int width = SCREEN_WIDTH * 0.35f;
+				int height = SCREEN_HEIGHT * 0.35f;
+				PPVERT quad[4] =
+				{
+					{ -0.5f,		-0.5f,          0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+					{ width - 0.5f, -0.5f,			0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f },
+					{ -0.5f,		height - 0.5f,	0.5f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f },
+					{ width - 0.5f, height - 0.5f,	0.5f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f }
+				};
+
+				g_pd3dDevice->SetVertexDeclaration( g_pVertDeclPP );
+				g_pEffect->SetTechnique( g_hTShowUnmodified );
+				g_pEffect->SetTexture( g_hTextureDepthTexture, g_depthTexture->getTexture() );
+				UINT cPasses;
+				g_pEffect->Begin( &cPasses, 0 );
+				for( size_t p = 0; p < cPasses; ++p )
+				{
+					g_pEffect->BeginPass( p );
+					g_pd3dDevice->DrawPrimitiveUP( D3DPT_TRIANGLESTRIP, 2, quad, sizeof( PPVERT ) );
+					g_pEffect->EndPass();
+				}
+				g_pEffect->End();
 			}
-			g_pEffect->End();
 		}
 
 		// End the scene
